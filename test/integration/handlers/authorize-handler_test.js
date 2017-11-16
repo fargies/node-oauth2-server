@@ -324,7 +324,7 @@ describe('AuthorizeHandler integration', function() {
         });
     });
 
-    it('should redirect to an error response if `response_type` is invalid', function() {
+    it('should throw an error if `response_type` is invalid', function() {
       var model = {
         getAccessToken: function() {
           return {
@@ -357,12 +357,13 @@ describe('AuthorizeHandler integration', function() {
 
       return handler.handle(request, response)
         .then(should.fail)
-        .catch(function() {
-          response.get('location').should.equal('http://example.com/cb?error=unsupported_response_type&error_description=Unsupported%20response%20type%3A%20%60response_type%60%20is%20not%20supported&state=foobar');
+        .catch(function(e) {
+          e.should.be.an.instanceOf(UnsupportedResponseTypeError);
+          e.message.should.equal('Unsupported response type: `response_type` is not supported');
         });
     });
 
-    it('should fail on invalid `response_type` before calling model.saveAuthorizationCode()', function() {
+    it('should throw on invalid `response_type` before calling model.saveAuthorizationCode()', function() {
       var model = {
         getAccessToken: function() {
           return {
@@ -395,8 +396,9 @@ describe('AuthorizeHandler integration', function() {
 
       return handler.handle(request, response)
         .then(should.fail)
-        .catch(function() {
-          response.get('location').should.equal('http://example.com/cb?error=unsupported_response_type&error_description=Unsupported%20response%20type%3A%20%60response_type%60%20is%20not%20supported&state=foobar');
+        .catch(function(e) {
+          e.should.be.an.instanceOf(UnsupportedResponseTypeError);
+          e.message.should.equal('Unsupported response type: `response_type` is not supported');
         });
     });
 
@@ -885,7 +887,7 @@ describe('AuthorizeHandler integration', function() {
         var request = new Request({ body: { response_type: 'code' }, headers: {}, method: {}, query: {} });
         var responseType = handler.getResponseType(request, client);
 
-        responseType.should.instanceof(CodeResponseType);
+        responseType.should.be.an.instanceof(CodeResponseType);
       });
     });
 
@@ -901,7 +903,7 @@ describe('AuthorizeHandler integration', function() {
         var request = new Request({ body: {}, headers: {}, method: {}, query: { response_type: 'code' } });
         var responseType = handler.getResponseType(request, client);
 
-        responseType.should.instanceof(CodeResponseType);
+        responseType.should.be.an.instanceof(CodeResponseType);
       });
     });
   });
