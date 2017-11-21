@@ -4,6 +4,7 @@
  * Module dependencies.
  */
 
+var _ = require('lodash');
 var AccessDeniedError = require('../../../lib/errors/access-denied-error');
 var AuthenticateHandler = require('../../../lib/handlers/authenticate-handler');
 var AuthorizeHandler = require('../../../lib/handlers/authorize-handler');
@@ -245,6 +246,54 @@ describe('AuthorizeHandler integration', function() {
       return handler.handle(request, response)
         .then(function() {
           response.get('location').should.equal('http://example.com/cb?code=12345&state=foobar');
+        })
+        .catch(should.fail);
+    });
+
+    it('should redirect to a successful response with `access_token` and `state` if successful', function() {
+      var client = { grants: ['implicit'], redirectUris: ['http://example.com/cb'] };
+      var model = {
+        generateAccessToken: function() {
+          return 'barbar';
+        },
+        getAccessToken: function() {
+          return {
+            client: client,
+            user: {},
+            accessTokenExpiresAt: new Date(new Date().getTime() + 10000)
+          };
+        },
+        getClient: function() {
+          return client;
+        },
+        saveToken: function(tokenToSave, client, user, callback) {
+          callback(null, _.assign(tokenToSave, { user: user, client: client }));
+        }
+      };
+      var handler = new AuthorizeHandler({ accessTokenLifetime: 123, model: model });
+      var request = new Request({
+        body: {
+          client_id: 12345,
+          response_type: 'token'
+        },
+        headers: {
+          'Authorization': 'Bearer foo'
+        },
+        method: {},
+        query: {
+          state: 'foobar'
+        }
+      });
+      var response = new Response({ body: {}, headers: {} });
+
+      return handler.handle(request, response)
+        .then(function() {
+          var params = url.parse(response.get('location')).hash.slice(1);
+          params = new url.URLSearchParams(params);
+          should(params.get('access_token')).be.equal('barbar');
+          should(params.get('token_type')).be.equal('Bearer');
+          should(params.get('state')).be.equal('foobar');
+          should.exist(params.get('expires_in'));
         })
         .catch(should.fail);
     });
@@ -537,25 +586,6 @@ describe('AuthorizeHandler integration', function() {
         .catch(function(e) {
           e.should.be.an.instanceOf(InvalidClientError);
           e.message.should.equal('Invalid client: missing client `grants`');
-        });
-    });
-
-    it('should throw an error if `client` is unauthorized', function() {
-      var model = {
-        getAccessToken: function() {},
-        getClient: function() {
-          return { grants: [] };
-        },
-        saveAuthorizationCode: function() {}
-      };
-      var handler = new AuthorizeHandler({ authorizationCodeLifetime: 120, model: model });
-      var request = new Request({ body: { client_id: 12345, response_type: 'code' }, headers: {}, method: {}, query: {} });
-
-      return handler.getClient(request)
-        .then(should.fail)
-        .catch(function(e) {
-          e.should.be.an.instanceOf(UnauthorizedClientError);
-          e.message.should.equal('Unauthorized client: `grant_type` is invalid');
         });
     });
 
@@ -856,7 +886,47 @@ describe('AuthorizeHandler integration', function() {
       }
     });
 
-    it('should throw an error if `response_type` is not `code`', function() {
+    it('should throw an error if `client` is unauthorized for `code` response_type', function() {
+      var model = {
+        getAccessToken: function() {},
+        getClient: function() {},
+        saveAuthorizationCode: function() {}
+      };
+      var client = { grants: ['implicit'] };
+      var handler = new AuthorizeHandler({ authorizationCodeLifetime: 120, model: model });
+      var request = new Request({ body: { client_id: 12345, response_type: 'code' }, headers: {}, method: {}, query: {} });
+
+      try {
+        handler.getResponseType(request, client);
+
+        should.fail();
+      } catch (e) {
+        e.should.be.an.instanceOf(UnauthorizedClientError);
+        e.message.should.equal('Unauthorized client: `grant_type` is invalid');
+      }
+    });
+
+    it('should throw an error if `client` is unauthorized for `token` response_type', function() {
+      var model = {
+        getAccessToken: function() {},
+        getClient: function() {},
+        saveAuthorizationCode: function() {}
+      };
+      var client = { grants: ['authorization_code', 'refresh_token'] };
+      var handler = new AuthorizeHandler({ authorizationCodeLifetime: 120, model: model });
+      var request = new Request({ body: { client_id: 12345, response_type: 'token' }, headers: {}, method: {}, query: {} });
+
+      try {
+        handler.getResponseType(request, client);
+
+        should.fail();
+      } catch (e) {
+        e.should.be.an.instanceOf(UnauthorizedClientError);
+        e.message.should.equal('Unauthorized client: `grant_type` is invalid');
+      }
+    });
+
+    it('should throw an error if `response_type` is not valid', function() {
       var model = {
         getAccessToken: function() {},
         getClient: function() {},
@@ -882,7 +952,7 @@ describe('AuthorizeHandler integration', function() {
           getClient: function() {},
           saveAuthorizationCode: function() {}
         };
-        var client = { grants: [ 'code' ] };
+        var client = { grants: [ 'authorization_code' ] };
         var handler = new AuthorizeHandler({ authorizationCodeLifetime: 120, model: model });
         var request = new Request({ body: { response_type: 'code' }, headers: {}, method: {}, query: {} });
         var responseType = handler.getResponseType(request, client);
@@ -898,7 +968,7 @@ describe('AuthorizeHandler integration', function() {
           getClient: function() {},
           saveAuthorizationCode: function() {}
         };
-        var client = { grants: [ 'code' ] };
+        var client = { grants: [ 'authorization_code' ] };
         var handler = new AuthorizeHandler({ authorizationCodeLifetime: 120, model: model });
         var request = new Request({ body: {}, headers: {}, method: {}, query: { response_type: 'code' } });
         var responseType = handler.getResponseType(request, client);
